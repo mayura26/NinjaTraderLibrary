@@ -278,6 +278,62 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         }
     }
 
+    public abstract class TriangleBaseSmall : ChartMarker
+    {
+        [XmlIgnore]
+        [Browsable(false)]
+        public bool IsUpTriangle { get; protected set; }
+
+        public static float MinimumSize { get { return 2f; } }
+
+        public override void OnRender(ChartControl chartControl, ChartScale chartScale)
+        {
+            if (Anchor.IsEditing)
+                return;
+
+            areaDeviceBrush.RenderTarget = RenderTarget;
+            outlineDeviceBrush.RenderTarget = RenderTarget;
+
+            ChartPanel panel = chartControl.ChartPanels[chartScale.PanelIndex];
+            Point pixelPoint = Anchor.GetPoint(chartControl, panel, chartScale);
+            SharpDX.Vector2 endVector = pixelPoint.ToVector2();
+
+            // the geometry is created with 0,0 as point origin, and pointing UP by default.
+            // so translate & rotate as needed
+            SharpDX.Matrix3x2 transformMatrix;
+
+            if (IsUpTriangle)
+                transformMatrix = SharpDX.Matrix3x2.Translation(endVector);
+            else
+                transformMatrix = SharpDX.Matrix3x2.Rotation(MathHelper.DegreesToRadians(180), SharpDX.Vector2.Zero) * SharpDX.Matrix3x2.Translation(endVector);
+
+            RenderTarget.AntialiasMode = SharpDX.Direct2D1.AntialiasMode.PerPrimitive;
+            RenderTarget.Transform = transformMatrix;
+
+            SharpDX.Direct2D1.PathGeometry trianglePathGeometry = new SharpDX.Direct2D1.PathGeometry(Core.Globals.D2DFactory);
+            SharpDX.Direct2D1.GeometrySink geometrySink = trianglePathGeometry.Open();
+
+            float barWidth = Math.Max((float)(BarWidth * 0.9), MinimumSize);
+            geometrySink.BeginFigure(SharpDX.Vector2.Zero, SharpDX.Direct2D1.FigureBegin.Filled);
+            geometrySink.AddLine(new SharpDX.Vector2(barWidth, barWidth));
+            geometrySink.AddLine(new SharpDX.Vector2(-barWidth, barWidth));
+            geometrySink.AddLine(SharpDX.Vector2.Zero);// cap off figure
+            geometrySink.EndFigure(SharpDX.Direct2D1.FigureEnd.Closed);
+            geometrySink.Close(); // note this calls dispose for you. but not the other way around
+
+            SharpDX.Direct2D1.Brush tmpBrush = IsInHitTest ? chartControl.SelectionBrush : outlineDeviceBrush.BrushDX;
+            if (tmpBrush != null)
+                RenderTarget.DrawGeometry(trianglePathGeometry, tmpBrush);
+            tmpBrush = IsInHitTest ? chartControl.SelectionBrush : areaDeviceBrush.BrushDX;
+            if (tmpBrush != null)
+                RenderTarget.FillGeometry(trianglePathGeometry, tmpBrush);
+
+            trianglePathGeometry.Dispose();
+            RenderTarget.Transform = SharpDX.Matrix3x2.Identity;
+        }
+    }
+
+
     /// <summary>
     /// Represents an interface that exposes information regarding a Triangle Down Fixed IDrawingTool.
     /// </summary>
@@ -329,6 +385,58 @@ namespace NinjaTrader.NinjaScript.DrawingTools
                 Dispose();
         }
     }
+
+	/// <summary>
+	/// Represents an interface that exposes information regarding a Triangle Down Small IDrawingTool.
+	/// </summary>
+	public class TriangleDownSmall : TriangleBaseSmall
+	{
+		public override object Icon { get { return Gui.Tools.Icons.DrawTriangleDown; } }
+
+		protected override void OnStateChange()
+		{
+			if (State == State.SetDefaults)
+			{
+				Anchor	= new ChartAnchor
+				{
+					DisplayName = Custom.Resource.NinjaScriptDrawingToolAnchor,
+					IsEditing	= true,
+				};
+				Name				= Custom.Resource.NinjaScriptDrawingToolsChartTriangleDownMarkerName;
+				AreaBrush			= Brushes.Crimson;
+				OutlineBrush		= Brushes.DarkGray;
+				IsUpTriangle		= false;
+			}
+			else if (State == State.Terminated)
+				Dispose();
+		}
+	}
+
+	/// <summary>
+	/// Represents an interface that exposes information regarding a Triangle Up Small IDrawingTool.
+	/// </summary>
+	public class TriangleUpSmall : TriangleBaseSmall
+	{
+		public override object Icon { get { return Gui.Tools.Icons.DrawTriangleUp; } }
+
+		protected override void OnStateChange()
+		{
+			if (State == State.SetDefaults)
+			{
+				Anchor	= new ChartAnchor
+				{
+					DisplayName = Custom.Resource.NinjaScriptDrawingToolAnchor,
+					IsEditing	= true,
+				};
+				Name				= Custom.Resource.NinjaScriptDrawingToolsChartTriangleUpMarkerName;
+				AreaBrush			= Brushes.SeaGreen;
+				OutlineBrush		= Brushes.DarkGray;
+				IsUpTriangle		= true;
+			}
+			else if (State == State.Terminated)
+				Dispose();
+		}
+	}
 
     public abstract class ArrowBoxMarkerBase : ChartMarker
     {
@@ -480,6 +588,24 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         }
     }
 
+    /// <summary>
+    /// Represents an interface that exposes information regarding a Delta Gamma Bar IDrawingTool.
+    /// </summary>
+    public class DeltaGammaBar : ShapeBase
+    {
+        public override object Icon { get { return Gui.Tools.Icons.DrawRectangle; } }
+
+        protected override void OnStateChange()
+        {
+            base.OnStateChange();
+            if (State == State.SetDefaults)
+            {
+                Name = Custom.Resource.NinjaScriptDrawingToolRectangle;
+                ShapeType = ChartShapeType.Rectangle;
+            }
+        }
+    }
+
     public static partial class Draw
     {
         /// <summary>
@@ -491,6 +617,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         /// <param name="barsAgo">The bar the object will be drawn at. A value of 10 would be 10 bars ago</param>
         /// <param name="y">The y value or Price for the object</param>
         /// <param name="brush">The brush used to color draw object</param>
+        /// <param name="symbolPosition">Determines the position of the symbol on the draw object</param>
         /// <returns></returns>
         public static SquareFixed SquareFixed(NinjaScriptBase owner, string tag, bool isAutoScale, int barsAgo, double y, Brush brush, SymbolPosition symbolPosition = SymbolPosition.Bottom)
         {
@@ -525,6 +652,36 @@ namespace NinjaTrader.NinjaScript.DrawingTools
             TriangleUpFixed triangleUp = ChartMarkerCore<TriangleUpFixed>(owner, tag, isAutoScale, barsAgo, Core.Globals.MinDate, y, brush, false, null);
             triangleUp.Fixed.SymbolPosition = symbolPosition;
             return triangleUp;
+        }
+
+        /// <summary>
+        /// Draws a triangle pointing up.
+        /// </summary>
+        /// <param name="owner">The hosting NinjaScript object which is calling the draw method</param>
+        /// <param name="tag">A user defined unique id used to reference the draw object</param>
+        /// <param name="isAutoScale">Determines if the draw object will be included in the y-axis scale</param>
+        /// <param name="barsAgo">The bar the object will be drawn at. A value of 10 would be 10 bars ago</param>
+        /// <param name="y">The y value or Price for the object</param>
+        /// <param name="brush">The brush used to color draw object</param>
+        /// <returns></returns>
+        public static TriangleUpSmall TriangleUpSmall(NinjaScriptBase owner, string tag, bool isAutoScale, int barsAgo, double y, Brush brush)
+        {
+            return ChartMarkerCore<TriangleUpSmall>(owner, tag, isAutoScale, barsAgo, Core.Globals.MinDate, y, brush, false, null);
+        }
+
+        /// <summary>
+        /// Draws a triangle pointing down.
+        /// </summary>
+        /// <param name="owner">The hosting NinjaScript object which is calling the draw method</param>
+        /// <param name="tag">A user defined unique id used to reference the draw object</param>
+        /// <param name="isAutoScale">Determines if the draw object will be included in the y-axis scale</param>
+        /// <param name="barsAgo">The bar the object will be drawn at. A value of 10 would be 10 bars ago</param>
+        /// <param name="y">The y value or Price for the object</param>
+        /// <param name="brush">The brush used to color draw object</param>
+        /// <returns></returns>
+        public static TriangleDownSmall TriangleDownSmall(NinjaScriptBase owner, string tag, bool isAutoScale, int barsAgo, double y, Brush brush)
+        {
+            return ChartMarkerCore<TriangleDownSmall>(owner, tag, isAutoScale, barsAgo, Core.Globals.MinDate, y, brush, false, null);
         }
 
         // arrow down
@@ -719,6 +876,27 @@ namespace NinjaTrader.NinjaScript.DrawingTools
         public static ArrowBoxUp ArrowBoxUp(NinjaScriptBase owner, string tag, bool isAutoScale, DateTime time, double y, bool isGlobal, string templateName)
         {
             return ChartMarkerCore<ArrowBoxUp>(owner, tag, isAutoScale, int.MinValue, time, y, null, isGlobal, templateName);
+        }
+
+        /// <summary>
+        /// Draws a delta gamma bar.
+        /// </summary>
+        /// <param name="owner">The hosting NinjaScript object which is calling the draw method</param>
+        /// <param name="tag">A user defined unique id used to reference the draw object</param>
+        /// <param name="isAutoScale">Determines if the draw object will be included in the y-axis scale</param>
+        /// <param name="startBarsAgo">The starting bar (x axis coordinate) where the draw object will be drawn. For example, a value of 10 would paint the draw object 10 bars back.</param>
+        /// <param name="startY">The starting y value coordinate where the draw object will be drawn</param>
+        /// <param name="endBarsAgo">The end bar (x axis coordinate) where the draw object will terminate</param>
+        /// <param name="endY">The end y value coordinate where the draw object will terminate</param>
+        /// <param name="brush">The brush used to color draw object</param>
+        /// <param name="areaBrush">The brush used to color the fill region area of the draw object</param>
+        /// <param name="areaOpacity"> Sets the level of transparency for the fill color. Valid values between 0 - 100. (0 = completely transparent, 100 = no opacity)</param>
+        /// <returns></returns>
+        public static DeltaGammaBar DeltaGammaBar(NinjaScriptBase owner, string tag, bool isAutoScale, int startBarsAgo, double startY, int endBarsAgo,
+            double endY, Brush brush, Brush areaBrush, int areaOpacity)
+        {
+            return ShapeCore<DeltaGammaBar>(owner, isAutoScale, tag, startBarsAgo, endBarsAgo, Core.Globals.MinDate, Core.Globals.MinDate, startY, endY,
+                brush, areaBrush, areaOpacity, false, null);
         }
     }
 }
