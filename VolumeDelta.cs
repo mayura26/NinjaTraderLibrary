@@ -94,8 +94,8 @@ namespace NinjaTrader.NinjaScript.Indicators
 
 			Draw.HorizontalLine(this, "ZeroLine", 0, Brushes.Gray, DashStyleHelper.Solid, 2);
 			Draw.HorizontalLine(this, "Plus100", 10, Brushes.Gray, DashStyleHelper.Solid, 2);
-			Values[4][0] = Math.Max(-100, Math.Min(100, (Values[0][0] - Values[0][1])/Values[0][1] * 100));
-			Values[5][0] = Math.Max(-100, Math.Min(100, (Values[1][0] - Values[1][1])/Values[1][1] * 100));
+			Values[4][0] = Math.Max(-100, Math.Min(100, (Values[0][0] - Values[0][1])/Math.Abs(Values[0][1]) * 100));
+			Values[5][0] = Math.Max(-100, Math.Min(100, (Values[1][0] - Values[1][1])/Math.Abs(Values[1][1]) * 100));
         }
 
 		#region Properties
