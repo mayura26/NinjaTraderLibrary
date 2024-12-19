@@ -32,6 +32,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private const double POINTS = 9;      // Distance for breakout in points
 		private const int TICK_TARGET = 22;   // Profit target in ticks
 		private bool ordersPlaced = false;
+		private bool triggerSet = false;
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
@@ -40,7 +41,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				Name = "ORBBreakout";
 				Calculate = Calculate.OnEachTick;
 				EntriesPerDirection = 1;
-				EntryHandling = EntryHandling.UniqueEntries;
+				EntryHandling = EntryHandling.AllEntries;
 				IncludeCommission = true;
 				IsExitOnSessionCloseStrategy = true;
 				ExitOnSessionCloseSeconds = 30;
@@ -63,6 +64,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 			else if (State == State.Realtime)
 			{
 				ordersPlaced = false;
+				triggerSet = false;
 			}
 		}
 
@@ -75,17 +77,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (Bars.IsFirstBarOfSession)
 			{
 				ordersPlaced = false;
+				triggerSet = false;
 			}
 
 			// Check if it's 9:29 AM EST to set trigger price
-			if (!ordersPlaced && Time[0].TimeOfDay == triggerTime.TimeOfDay)
+			if (!triggerSet && !ordersPlaced && Time[0].TimeOfDay == triggerTime.TimeOfDay)
 			{
-				triggerPrice = Close[0];
-				ordersPlaced = true;
+				triggerPrice = Close[1];
+				triggerSet = true;
 				Print(Time[0] + " [ORB Breakout] Trigger Price Set: " + triggerPrice);
 			}
 
-			if (ordersPlaced)
+			if (triggerSet && !ordersPlaced)
 			{
 				double buyStopPrice = triggerPrice + POINTS;
 				double sellStopPrice = triggerPrice - POINTS;
@@ -96,7 +99,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					Print(Time[0] + " [ORB Breakout] Buy Stop Order Placed: " + buyStopPrice);
 					EnterLong("Long Breakout");
 					SetProfitTarget("Long Breakout", CalculationMode.Ticks, TICK_TARGET);
-					ordersPlaced = false;
+					ordersPlaced = true;
 				}
 
 				// Place Sell Stop Order if price breaks below sellStopPrice
@@ -105,7 +108,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					Print(Time[0] + " [ORB Breakout] Sell Stop Order Placed: " + sellStopPrice);
 					EnterShort("Short Breakout");
 					SetProfitTarget("Short Breakout", CalculationMode.Ticks, TICK_TARGET);
-					ordersPlaced = false;
+					ordersPlaced = true;
 				}
 			}
 		}
