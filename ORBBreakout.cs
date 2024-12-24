@@ -22,17 +22,43 @@ using NinjaTrader.NinjaScript.Indicators;
 using NinjaTrader.NinjaScript.DrawingTools;
 #endregion
 
+/* 
+TODO: Fix issue if it is triggering before the first bar at 930
+TODO: Add a check to do the reverse trade
+TODO: Create check if we bounced on opening level, and if so take another long?
+*/
+
 //This namespace holds Strategies in this folder and is required. Do not change it. 
 namespace NinjaTrader.NinjaScript.Strategies
 {
 	public class ORBBreakout : Strategy
 	{
+		#region Properties
+		[NinjaScriptProperty]
+		[Range(1, int.MaxValue)]
+		[Display(Name = "DefaultContractSize", Description = "Number of contracts to trade", Order = 2, GroupName = "1. Main Parameters")]
+		public int DefaultContractSize { get; set; } = 1;
+
+		[NinjaScriptProperty]
+		[Display(Name = "Double Entry", Description = "If true, the strategy will enter a double entry mode where it will enter a trade with a larger SL and more size.", Order = 3, GroupName = "1. Main Parameters")]
+		public bool DoubleEntry { get; set; } = false;
+		#endregion
+
+		#region Variables
 		private DateTime triggerTime;
+		private DateTime triggerDoubleEndTime;
+		private DateTime triggerBETime;
 		private double triggerPrice;
 		private const double POINTS = 9;      // Distance for breakout in points
 		private const int TICK_TARGET = 22;   // Profit target in ticks
 		private bool ordersPlaced = false;
 		private bool triggerSet = false;
+		private bool longBreakoutTriggered = false;
+		private bool shortBreakoutTriggered = false;
+		private bool longBreakoutSet = false;
+		private bool shortBreakoutSet = false;
+		private bool triggerBETimeSet = false;
+		#endregion
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
@@ -59,12 +85,19 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// See the Help Guide for additional information
 				IsInstantiatedOnEachOptimizationIteration = true;
 
-				triggerTime = DateTime.Parse("09:30", System.Globalization.CultureInfo.InvariantCulture);
+				triggerTime = DateTime.Parse("09:31", System.Globalization.CultureInfo.InvariantCulture);
+				triggerDoubleEndTime = DateTime.Parse("09:42", System.Globalization.CultureInfo.InvariantCulture);
+				triggerBETime = DateTime.Parse("09:33", System.Globalization.CultureInfo.InvariantCulture);
 			}
 			else if (State == State.Realtime)
 			{
 				ordersPlaced = false;
 				triggerSet = false;
+				longBreakoutTriggered = false;
+				shortBreakoutTriggered = false;
+				longBreakoutSet = false;
+				shortBreakoutSet = false;
+				triggerBETimeSet = false;
 			}
 		}
 
@@ -78,6 +111,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 			{
 				ordersPlaced = false;
 				triggerSet = false;
+				longBreakoutTriggered = false;
+				shortBreakoutTriggered = false;
+				longBreakoutSet = false;
+				shortBreakoutSet = false;
+				triggerBETimeSet = false;
 			}
 
 			// Check if it's 9:29 AM EST to set trigger price
@@ -93,23 +131,83 @@ namespace NinjaTrader.NinjaScript.Strategies
 				double buyStopPrice = triggerPrice + POINTS;
 				double sellStopPrice = triggerPrice - POINTS;
 
+				// Draw lines for breakout levels
+				Draw.HorizontalLine(this, "BuyStopLine", buyStopPrice, Brushes.LightGreen, DashStyleHelper.Solid, 1);
+				Draw.HorizontalLine(this, "SellStopLine", sellStopPrice, Brushes.Pink, DashStyleHelper.Solid, 1);
+
 				// Place Buy Stop Order if price breaks above buyStopPrice
-				if (High[0] >= buyStopPrice && Position.MarketPosition == MarketPosition.Flat)
+				if (High[0] > buyStopPrice && Position.MarketPosition == MarketPosition.Flat)
 				{
 					Print(Time[0] + " [ORB Breakout] Buy Stop Order Placed: " + buyStopPrice);
-					EnterLong("Long Breakout");
+					EnterLong(DefaultContractSize, "Long Breakout");
 					SetProfitTarget("Long Breakout", CalculationMode.Ticks, TICK_TARGET);
 					ordersPlaced = true;
+					longBreakoutTriggered = true;
 				}
 
 				// Place Sell Stop Order if price breaks below sellStopPrice
-				if (Low[0] <= sellStopPrice && Position.MarketPosition == MarketPosition.Flat)
+				if (Low[0] < sellStopPrice && Position.MarketPosition == MarketPosition.Flat)
 				{
 					Print(Time[0] + " [ORB Breakout] Sell Stop Order Placed: " + sellStopPrice);
-					EnterShort("Short Breakout");
+					EnterShort(DefaultContractSize, "Short Breakout");
 					SetProfitTarget("Short Breakout", CalculationMode.Ticks, TICK_TARGET);
 					ordersPlaced = true;
+					shortBreakoutTriggered = true;
 				}
+			}
+
+			if (Time[0].TimeOfDay == triggerBETime.TimeOfDay && Position.MarketPosition != MarketPosition.Flat && !triggerBETimeSet)
+			{
+				double beOffset = 0.5;
+				triggerBETimeSet = true;
+				Print(Time[0] + " [ORB Breakout] Trigger BE Time: " + triggerBETime);
+				SetProfitTarget("Long Breakout", CalculationMode.Price, Position.AveragePrice + beOffset);
+				SetProfitTarget("Short Breakout", CalculationMode.Price, Position.AveragePrice - beOffset);
+			}
+
+			if (triggerSet && longBreakoutSet && !longBreakoutTriggered && DoubleEntry && Time[0].TimeOfDay <= triggerDoubleEndTime.TimeOfDay)
+			{
+				double buyStopPrice = triggerPrice + POINTS;
+
+				// Place Buy Stop Order if price breaks above buyStopPrice
+				if (High[0] > buyStopPrice && Position.MarketPosition == MarketPosition.Flat)
+				{
+					Print(Time[0] + " [ORB Breakout - Double Entry] Buy Stop Order Placed: " + buyStopPrice);
+					EnterLong(DefaultContractSize, "Long Breakout Second Entry");
+					SetProfitTarget("Long Breakout Second Entry", CalculationMode.Ticks, TICK_TARGET);
+					ordersPlaced = true;
+					longBreakoutTriggered = true;
+				}
+			}
+
+			if (triggerSet && shortBreakoutSet && !shortBreakoutTriggered && DoubleEntry && Time[0].TimeOfDay <= triggerDoubleEndTime.TimeOfDay)
+			{
+				double sellStopPrice = triggerPrice - POINTS;
+
+				// Place Sell Stop Order if price breaks below sellStopPrice
+				if (Low[0] < sellStopPrice && Position.MarketPosition == MarketPosition.Flat)
+				{
+					Print(Time[0] + " [ORB Breakout - Double Entry] Sell Stop Order Placed: " + sellStopPrice);
+					EnterShort(DefaultContractSize, "Short Breakout Second Entry");
+					SetProfitTarget("Short Breakout Second Entry", CalculationMode.Ticks, TICK_TARGET);
+					ordersPlaced = true;
+					shortBreakoutTriggered = true;
+				}
+			}
+		}
+
+		protected override void OnExecutionUpdate(Execution execution, string executionId, double price, int quantity, MarketPosition marketPosition, string orderId, DateTime time)
+		{
+			// After a long trade closes, place the short breakout order
+			if (execution.Order.FromEntrySignal == "Long Breakout" && execution.Order.OrderState == OrderState.Filled && (execution.Order.Name.Contains("Profit target") || execution.Order.Name.Contains("Stop loss")) && !shortBreakoutSet && !shortBreakoutTriggered)
+			{
+				shortBreakoutSet = true;
+			}
+
+			// After a short trade closes, place the long breakout order
+			if (execution.Order.FromEntrySignal == "Short Breakout" && execution.Order.OrderState == OrderState.Filled && (execution.Order.Name.Contains("Profit target") || execution.Order.Name.Contains("Stop loss")) && !longBreakoutSet && !longBreakoutTriggered)
+			{
+				longBreakoutSet = true;
 			}
 		}
 	}
