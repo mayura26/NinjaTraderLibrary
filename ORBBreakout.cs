@@ -23,9 +23,19 @@ using NinjaTrader.NinjaScript.DrawingTools;
 #endregion
 
 /* 
-TODO: Fix issue if it is triggering before the first bar at 930
-TODO: Add a check to do the reverse trade
-TODO: Create check if we bounced on opening level, and if so take another long?
+TODO: Add maximum allowed drawdown
+
+TODO: Set up check so if we break trigger after BE time, and we go back under, close at the loss? So bar [1] crosses over trigger and then bar[0] goes under, just exit?
+[ ] 2024-07-01 9:31:00 AM [ORB Breakout] Sell Stop Order Placed: 19962.25
+
+TODO: If we get just to profit (near 0.5 points) then SL at 1 point positive of entry profit?
+[ ] 2024-11-18 9:40:00 AM [ORB Breakout - Double Entry] Buy Stop Order Placed: 20566.25
+[ ] 2024-11-19 9:35:00 AM [ORB Breakout - Double Entry] Sell Stop Order Placed: 20512.5
+[ ] 2024-11-06 9:31:00 AM [ORB Breakout - Double Entry] Sell Stop Order Placed: 20676
+[ ] 2024-11-15 9:31:00 AM [ORB Breakout] Buy Stop Order Placed: 20768
+[ ] 2024-11-13
+
+[ ] 11 -01 - Failure
 */
 
 //This namespace holds Strategies in this folder and is required. Do not change it. 
@@ -58,6 +68,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private bool longBreakoutSet = false;
 		private bool shortBreakoutSet = false;
 		private bool triggerBETimeSet = false;
+		private int barTradeClosed = 0;
 		#endregion
 		protected override void OnStateChange()
 		{
@@ -116,6 +127,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 				longBreakoutSet = false;
 				shortBreakoutSet = false;
 				triggerBETimeSet = false;
+				SetProfitTarget("Long Breakout", CalculationMode.Ticks, TICK_TARGET);
+				SetProfitTarget("Short Breakout", CalculationMode.Ticks, TICK_TARGET);
+				SetProfitTarget("Long Breakout Second Entry", CalculationMode.Ticks, TICK_TARGET);
+				SetProfitTarget("Short Breakout Second Entry", CalculationMode.Ticks, TICK_TARGET);
 			}
 
 			// Check if it's 9:29 AM EST to set trigger price
@@ -134,13 +149,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// Draw lines for breakout levels
 				Draw.HorizontalLine(this, "BuyStopLine", buyStopPrice, Brushes.LightGreen, DashStyleHelper.Solid, 1);
 				Draw.HorizontalLine(this, "SellStopLine", sellStopPrice, Brushes.Pink, DashStyleHelper.Solid, 1);
+				Draw.HorizontalLine(this, "TriggerPrice", triggerPrice, Brushes.Gray, DashStyleHelper.Solid, 1);
 
 				// Place Buy Stop Order if price breaks above buyStopPrice
 				if (High[0] > buyStopPrice && Position.MarketPosition == MarketPosition.Flat)
 				{
 					Print(Time[0] + " [ORB Breakout] Buy Stop Order Placed: " + buyStopPrice);
 					EnterLong(DefaultContractSize, "Long Breakout");
-					SetProfitTarget("Long Breakout", CalculationMode.Ticks, TICK_TARGET);
+					SetProfitTarget("Long Breakout", CalculationMode.Price, buyStopPrice + TICK_TARGET * 0.25);
 					ordersPlaced = true;
 					longBreakoutTriggered = true;
 				}
@@ -150,7 +166,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					Print(Time[0] + " [ORB Breakout] Sell Stop Order Placed: " + sellStopPrice);
 					EnterShort(DefaultContractSize, "Short Breakout");
-					SetProfitTarget("Short Breakout", CalculationMode.Ticks, TICK_TARGET);
+					SetProfitTarget("Short Breakout", CalculationMode.Price, sellStopPrice - TICK_TARGET * 0.25);
 					ordersPlaced = true;
 					shortBreakoutTriggered = true;
 				}
@@ -174,7 +190,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					Print(Time[0] + " [ORB Breakout - Double Entry] Buy Stop Order Placed: " + buyStopPrice);
 					EnterLong(DefaultContractSize, "Long Breakout Second Entry");
-					SetProfitTarget("Long Breakout Second Entry", CalculationMode.Ticks, TICK_TARGET);
+					SetProfitTarget("Long Breakout Second Entry", CalculationMode.Price, buyStopPrice + TICK_TARGET * 0.25);
 					ordersPlaced = true;
 					longBreakoutTriggered = true;
 				}
@@ -189,7 +205,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					Print(Time[0] + " [ORB Breakout - Double Entry] Sell Stop Order Placed: " + sellStopPrice);
 					EnterShort(DefaultContractSize, "Short Breakout Second Entry");
-					SetProfitTarget("Short Breakout Second Entry", CalculationMode.Ticks, TICK_TARGET);
+					SetProfitTarget("Short Breakout Second Entry", CalculationMode.Price, sellStopPrice - TICK_TARGET * 0.25);
 					ordersPlaced = true;
 					shortBreakoutTriggered = true;
 				}
@@ -202,12 +218,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (execution.Order.FromEntrySignal == "Long Breakout" && execution.Order.OrderState == OrderState.Filled && (execution.Order.Name.Contains("Profit target") || execution.Order.Name.Contains("Stop loss")) && !shortBreakoutSet && !shortBreakoutTriggered)
 			{
 				shortBreakoutSet = true;
+				barTradeClosed = CurrentBar;
 			}
 
 			// After a short trade closes, place the long breakout order
 			if (execution.Order.FromEntrySignal == "Short Breakout" && execution.Order.OrderState == OrderState.Filled && (execution.Order.Name.Contains("Profit target") || execution.Order.Name.Contains("Stop loss")) && !longBreakoutSet && !longBreakoutTriggered)
 			{
 				longBreakoutSet = true;
+				barTradeClosed = CurrentBar;
 			}
 		}
 	}
