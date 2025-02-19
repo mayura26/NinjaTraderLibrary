@@ -58,6 +58,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private DateTime triggerTime;
 		private DateTime triggerDoubleEndTime;
 		private DateTime triggerBETime;
+		private DateTime statsTime;
 		private double triggerPrice;
 		private const double POINTS = 9;      // Distance for breakout in points
 		private const int TICK_TARGET = 22;   // Profit target in ticks
@@ -69,6 +70,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private bool shortBreakoutSet = false;
 		private bool triggerBETimeSet = false;
 		private int barTradeClosed = 0;
+		#region PnL Variables
+		private double currentPnL;
+		private int lastTradeChecked = -1;
+		private double currentTradePnL = 0;
+		private bool newTradeCalculated = false;
+		#endregion
 		#endregion
 		protected override void OnStateChange()
 		{
@@ -79,7 +86,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				Calculate = Calculate.OnEachTick;
 				EntriesPerDirection = 1;
 				EntryHandling = EntryHandling.AllEntries;
-				IncludeCommission = true;
+				IncludeCommission = false;
 				IsExitOnSessionCloseStrategy = true;
 				ExitOnSessionCloseSeconds = 30;
 				IsFillLimitOnTouch = false;
@@ -99,7 +106,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 				triggerTime = DateTime.Parse("09:31", System.Globalization.CultureInfo.InvariantCulture);
 				triggerDoubleEndTime = DateTime.Parse("09:42", System.Globalization.CultureInfo.InvariantCulture);
 				triggerBETime = DateTime.Parse("09:33", System.Globalization.CultureInfo.InvariantCulture);
+				statsTime = DateTime.Parse("10:00", System.Globalization.CultureInfo.InvariantCulture);
 			}
+
 			else if (State == State.Realtime)
 			{
 				ordersPlaced = false;
@@ -174,11 +183,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 			if (Time[0].TimeOfDay == triggerBETime.TimeOfDay && Position.MarketPosition != MarketPosition.Flat && !triggerBETimeSet)
 			{
+				double buyStopPrice = triggerPrice + POINTS;
+				double sellStopPrice = triggerPrice - POINTS;
 				double beOffset = 0.5;
 				triggerBETimeSet = true;
 				Print(Time[0] + " [ORB Breakout] Trigger BE Time: " + triggerBETime);
-				SetProfitTarget("Long Breakout", CalculationMode.Price, Position.AveragePrice + beOffset);
-				SetProfitTarget("Short Breakout", CalculationMode.Price, Position.AveragePrice - beOffset);
+				SetProfitTarget("Long Breakout", CalculationMode.Price, buyStopPrice - beOffset);
+				SetProfitTarget("Short Breakout", CalculationMode.Price, sellStopPrice + beOffset);
 			}
 
 			if (triggerSet && longBreakoutSet && !longBreakoutTriggered && DoubleEntry && Time[0].TimeOfDay <= triggerDoubleEndTime.TimeOfDay)
@@ -210,6 +221,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 					shortBreakoutTriggered = true;
 				}
 			}
+
+			#region PnL Calculation
+			if (Time[0].TimeOfDay == statsTime.TimeOfDay)
+			{
+				Print(Time[0] + " [ORB Breakout: PNL UPDATE] COMPLETED TRADE PnL: $" + currentTradePnL + " | Total PnL: $" + currentPnL);
+
+				currentTradePnL = 0;
+				newTradeCalculated = false;
+			}
+			#endregion
 		}
 
 		protected override void OnExecutionUpdate(Execution execution, string executionId, double price, int quantity, MarketPosition marketPosition, string orderId, DateTime time)
@@ -227,6 +248,42 @@ namespace NinjaTrader.NinjaScript.Strategies
 				longBreakoutSet = true;
 				barTradeClosed = CurrentBar;
 			}
+
+			#region PnL Calculation
+			if (SystemPerformance.AllTrades.Count > 0)
+			{
+				if (State == State.Realtime)
+				{
+					Cbi.Trade lastTrade = SystemPerformance.AllTrades[
+						SystemPerformance.AllTrades.Count - 1
+					];
+
+					// Sum the profits of trades with similar exit times
+					double execTradePnL = lastTrade.ProfitCurrency;
+					int execQty = lastTrade.Quantity;
+					DateTime exitTime = lastTrade.Exit.Time;
+					if (lastTrade.TradeNumber > lastTradeChecked)
+					{
+						for (int i = SystemPerformance.AllTrades.Count - 2; i >= 0; i--)
+						{
+							Cbi.Trade trade = SystemPerformance.AllTrades[i];
+							if (Math.Abs((trade.Exit.Time - exitTime).TotalSeconds) <= 10 && trade.TradeNumber > lastTradeChecked)
+							{
+								execTradePnL += trade.ProfitCurrency;
+								execQty += trade.Quantity;
+							}
+							else
+							{
+								break; // Exit the loop if the exit time is different
+							}
+						}
+						lastTradeChecked = lastTrade.TradeNumber;
+						currentPnL += execTradePnL;
+						newTradeCalculated = true;
+					}
+				}
+			}
+			#endregion
 		}
 	}
 }
