@@ -33,15 +33,9 @@ using DayOfWeek = System.DayOfWeek;
 //This namespace holds Strategies in this folder and is required. Do not change it. 
 namespace NinjaTrader.NinjaScript.Strategies
 {
-	#region TODO
-	/*
-TODO: [1] Add SL/TP order tracking
-	*/
-	#endregion
-	public class StrategyTemplate : Strategy
+	public class iFVGTrader : Strategy
 	{
-		private string productName = "StrategyTemplate";
-		private string productDesc = "Strategy Template";
+		private string productName = "iFVGTrader";
 		#region Properties
 		#region Main Parameters
 		[NinjaScriptProperty]
@@ -78,21 +72,49 @@ TODO: [1] Add SL/TP order tracking
 		[Range(1, double.MaxValue)]
 		[Display(Name = "Full Take Profit", Description = "Take profit level for full position exit", Order = 7, GroupName = "1. Main Parameters")]
 		public double FullTakeProfit
-		{ get; set; } = 100;
+		{ get; set; } = 15;
 
 		[NinjaScriptProperty]
 		[Range(1, double.MaxValue)]
 		[Display(Name = "Full Stop Loss", Description = "Stop loss level for full position exit", Order = 8, GroupName = "1. Main Parameters")]
 		public double FullStopLoss
-		{ get; set; } = 60;
+		{ get; set; } = 10;
 		#endregion
 
-		#region Core Engine Parameters
+		#region FVG Parameters
 		[NinjaScriptProperty]
-		[Range(0, double.MaxValue)]
-		[Display(Name = "Conversion Factor ES", Description = "Conversion factor for ES", Order = 3, GroupName = "2. Core Engine Parameters")]
-		public double ConversionFactorES
-		{ get; set; } = 0.33;
+		[Range(1, int.MaxValue)]
+		[Display(Name = "Maximum FVG Count", Description = "Maximum number of FVGs to track", Order = 6, GroupName = "1. FVG Parameters")]
+		public int MaxFvg
+		{ get; set; } = 10;
+
+		[NinjaScriptProperty]
+		[Range(1, int.MaxValue)]
+		[Display(Name = "Minimum Ticks", Description = "Minimum number of ticks for FVG", Order = 7, GroupName = "1. FVG Parameters")]
+		public int MinimumTicks
+		{ get; set; } = 1;
+
+		[NinjaScriptProperty]
+		[Display(Name = "Enable Swing Detection", Description = "Enables swing high/low detection", Order = 8, GroupName = "1. FVG Parameters")]
+		public bool EnableSwingDetection
+		{ get; set; } = true;
+
+		[NinjaScriptProperty]
+		[Range(1, int.MaxValue)]
+		[Display(Name = "Minimum Swing Strength", Description = "Minimum price difference for swing validation (in ticks)", Order = 9, GroupName = "1. FVG Parameters")]
+		public int MinimumSwingStrength
+		{ get; set; } = 1;
+
+		[NinjaScriptProperty]
+		[Range(1, int.MaxValue)]
+		[Display(Name = "Maximum Swing Count", Description = "Maximum number of swing points to track", Order = 10, GroupName = "1. FVG Parameters")]
+		public int MaxSwingCount
+		{ get; set; } = 20;
+
+		[NinjaScriptProperty]
+		[Display(Name = "Plot All Swing Points", Description = "Plots all swing points on chart for better visualization", Order = 12, GroupName = "1. FVG Parameters")]
+		public bool PlotAllSwingPoints
+		{ get; set; } = true;
 		#endregion
 
 		#region Dynamic TP/SL Parameters
@@ -116,38 +138,34 @@ TODO: [1] Add SL/TP order tracking
 
 		#region Trim Settings
 		[NinjaScriptProperty]
-		[Display(Name = "Enable Dynamic Trim", Description = "Enables dynamic trim functionality", Order = 1, GroupName = "3. Trim Settings")]
+		[Range(0, double.MaxValue)]
+		[Display(Name = "Enable Dynamic Trim", Description = "Enable dynamic trim", Order = 1, GroupName = "1. TP Parameters")]
 		public bool EnableDynamicTrim
-		{ get; set; } = true;
+		{ get; set; } = false;
 
 		[NinjaScriptProperty]
-		[Display(Name = "Enable Secondary Trim", Description = "Enables secondary trim functionality", Order = 2, GroupName = "3. Trim Settings")]
-		public bool EnableSecondaryTrim
-		{ get; set; } = true;
+		[Range(0, double.MaxValue)]
+		[Display(Name = "Dynamic Trim R", Description = "Dynamic trim R", Order = 2, GroupName = "1. TP Parameters")]
+		public double DynamicTrimR
+		{ get; set; } = 1.25;
 
 		[NinjaScriptProperty]
-		[Range(1, 100)]
-		[Display(Name = "Trim Percent", Description = "Percentage of position to trim at first target", Order = 3, GroupName = "3. Trim Settings")]
-		public double TrimPercent
-		{ get; set; } = 30;
+		[Range(0, double.MaxValue)]
+		[Display(Name = "Secondary Trim R", Description = "Secondary trim R", Order = 3, GroupName = "1. TP Parameters")]
+		public double SecondaryTrimR
+		{ get; set; } = 2.0;
 
 		[NinjaScriptProperty]
-		[Range(1, 100)]
-		[Display(Name = "Secondary Trim Percent", Description = "Percentage of position to trim at second target", Order = 4, GroupName = "3. Trim Settings")]
+		[Range(0, double.MaxValue)]
+		[Display(Name = "Dynamic Trim Percent", Description = "Dynamic trim percent", Order = 4, GroupName = "1. TP Parameters")]
+		public double DynamicTrimPercent
+		{ get; set; } = 15;
+
+		[NinjaScriptProperty]
+		[Range(0, double.MaxValue)]
+		[Display(Name = "Secondary Trim Percent", Description = "Secondary trim percent", Order = 5, GroupName = "1. TP Parameters")]
 		public double SecondaryTrimPercent
-		{ get; set; } = 30;
-
-		[NinjaScriptProperty]
-		[Range(1, double.MaxValue)]
-		[Display(Name = "Trim Take Profit", Description = "Take profit level for partial position exit", Order = 5, GroupName = "3. Trim Settings")]
-		public double TrimTakeProfit
 		{ get; set; } = 50;
-
-		[NinjaScriptProperty]
-		[Range(1, double.MaxValue)]
-		[Display(Name = "Secondary Trim Take Profit", Description = "Second take profit level for partial position exit", Order = 6, GroupName = "3. Trim Settings")]
-		public double SecondaryTrimTakeProfit
-		{ get; set; } = 75;
 		#endregion
 
 		#region Time Parameters
@@ -155,25 +173,25 @@ TODO: [1] Add SL/TP order tracking
 		[PropertyEditor("NinjaTrader.Gui.Tools.TimeEditorKey")]
 		[Display(Name = "Start Time", Description = "Session start time", Order = 1, GroupName = "4. Time Parameters")]
 		public DateTime StartTime
-		{ get; set; }
+		{ get; set; } = DateTime.Parse("00:00", System.Globalization.CultureInfo.InvariantCulture);
 
 		[NinjaScriptProperty]
 		[PropertyEditor("NinjaTrader.Gui.Tools.TimeEditorKey")]
 		[Display(Name = "End Time", Description = "Session end time", Order = 2, GroupName = "4. Time Parameters")]
 		public DateTime EndTime
-		{ get; set; }
+		{ get; set; } = DateTime.Parse("23:59", System.Globalization.CultureInfo.InvariantCulture);
 
 		[NinjaScriptProperty]
 		[PropertyEditor("NinjaTrader.Gui.Tools.TimeEditorKey")]
 		[Display(Name = "Blackout Start Time", Description = "Blackout start time", Order = 3, GroupName = "4. Time Parameters")]
 		public DateTime BlackoutStartTime
-		{ get; set; }
+		{ get; set; } = DateTime.Parse("09:20", System.Globalization.CultureInfo.InvariantCulture);
 
 		[NinjaScriptProperty]
 		[PropertyEditor("NinjaTrader.Gui.Tools.TimeEditorKey")]
 		[Display(Name = "Blackout End Time", Description = "Blackout end time", Order = 4, GroupName = "4. Time Parameters")]
 		public DateTime BlackoutEndTime
-		{ get; set; }
+		{ get; set; } = DateTime.Parse("09:40", System.Globalization.CultureInfo.InvariantCulture);
 		#endregion
 
 		#region Extra Parameters	
@@ -243,19 +261,37 @@ TODO: [1] Add SL/TP order tracking
 
 		private List<TradeExecutionDetailsStrategy> tradeExecutionDetails;
 
+		// FVG related variables
+		private List<FVGEntry> fvgList = new List<FVGEntry>();
+
+		// Swing high/low related variables
+		private List<SwingPoint> swingHighs = new List<SwingPoint>();
+		private List<SwingPoint> swingLows = new List<SwingPoint>();
+		private bool potentialSwingHigh = false;
+		private bool potentialSwingLow = false;
+		private int swingHighBar = -1;
+		private int swingLowBar = -1;
+		private double swingHighPrice = 0;
+		private double swingLowPrice = 0;
+		private int swingValidationBars = 0;
+
+		// Horizontal line tracking
+		private SwingPoint currentSwingHighLine = null;
+		private SwingPoint currentSwingLowLine = null;
+
 		#endregion
 		#region Licensing
-		public StrategyTemplate()
-		{
-			VendorLicense("TradingLevelsAlgo", productName, "www.TradingLevelsAlgo.com", "tradinglevelsalgo@gmail.com", null);
-		}
+		// public iFVGTrader()
+		// {
+		// 	VendorLicense("TradingLevelsAlgo", productName, "www.TradingLevelsAlgo.com", "tradinglevelsalgo@gmail.com", null);
+		// }
 		#endregion
 		#region Initialization
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
 			{
-				Description = productName + @" - " + productDesc;
+				Description = productName + @" - iFVGTrader";
 				Name = productName;
 				Calculate = Calculate.OnBarClose;
 				EntriesPerDirection = 1;
@@ -278,12 +314,6 @@ TODO: [1] Add SL/TP order tracking
 				// See the Help Guide for additional information
 				IsInstantiatedOnEachOptimizationIteration = true;
 
-				StartTime = DateTime.Parse("12:00", System.Globalization.CultureInfo.InvariantCulture);
-				EndTime = DateTime.Parse("15:00", System.Globalization.CultureInfo.InvariantCulture);
-				BlackoutStartTime = DateTime.Parse("09:20", System.Globalization.CultureInfo.InvariantCulture);
-				BlackoutEndTime = DateTime.Parse("09:40", System.Globalization.CultureInfo.InvariantCulture);
-
-
 				tradeExecutionDetails = new List<TradeExecutionDetailsStrategy>();
 			}
 			else if (State == State.DataLoaded)
@@ -298,14 +328,14 @@ TODO: [1] Add SL/TP order tracking
 				{
 					string expectedTimeframe = BarsPeriodType.Minute.ToString() + " " + 1.ToString();
 					Draw.TextFixed(this, "TimeframeWarning", $"WARNING: This strategy is designed for {expectedTimeframe} charts only!", TextPosition.Center);
-					Print($"WARNING: {productName} strategy is designed to run on {expectedTimeframe} timeframe only. Current timeframe: "
+					Print($"WARNING: GoldBreakout strategy is designed to run on {expectedTimeframe} timeframe only. Current timeframe: "
 						+ BarsPeriod.BarsPeriodType.ToString() + " " + BarsPeriod.Value.ToString());
 				}
 
 				if (Instrument.MasterInstrument.Name != "MGC")
 				{
 					Draw.TextFixed(this, "InstrumentWarning", $"WARNING: This strategy is designed for MGC only!", TextPosition.Center);
-					Print($"WARNING: {productName} strategy is designed to run on MGC only. Current instrument: "
+					Print($"WARNING: GoldFader strategy is designed to run on MGC only. Current instrument: "
 						+ Instrument.MasterInstrument.Name);
 				}
 
@@ -342,6 +372,42 @@ TODO: [1] Add SL/TP order tracking
 				RemoveDrawObject("Label" + "ORB Low");
 				#endregion
 
+				#region Clear Swing Points
+				if (EnableSwingDetection)
+				{
+					// Clear all swing high graphics
+					foreach (var swing in swingHighs)
+					{
+						RemoveDrawObject($"SwingHigh_{swing.BarIndex}");
+						RemoveDrawObject($"SwingHighLabel_{swing.BarIndex}");
+						RemoveDrawObject($"SwingHighLine_{swing.BarIndex}");
+					}
+					
+					// Clear all swing low graphics
+					foreach (var swing in swingLows)
+					{
+						RemoveDrawObject($"SwingLow_{swing.BarIndex}");
+						RemoveDrawObject($"SwingLowLabel_{swing.BarIndex}");
+						RemoveDrawObject($"SwingLowLine_{swing.BarIndex}");
+					}
+					
+					// Clear swing point lists
+					swingHighs.Clear();
+					swingLows.Clear();
+					potentialSwingHigh = false;
+					potentialSwingLow = false;
+					swingHighBar = -1;
+					swingLowBar = -1;
+					swingHighPrice = 0;
+					swingLowPrice = 0;
+					swingValidationBars = 0;
+					
+					// Clear horizontal line tracking
+					currentSwingHighLine = null;
+					currentSwingLowLine = null;
+				}
+				#endregion
+
 				EnableTrading = true;
 				lastTimeSession = 0;
 				tradeCompleteSLPoints = 0;
@@ -357,10 +423,68 @@ TODO: [1] Add SL/TP order tracking
 			GetTimeSessionVariables();
 			#endregion
 			#region Core Engine
+
+			// Check for FVG on current bar
+			if (CurrentBar >= 3)
+			{
+				int upGap = (int)Math.Round((Low[0] - High[2]) / TickSize);
+				int dnGap = (int)Math.Round((Low[2] - High[0]) / TickSize);
+
+				if (upGap >= MinimumTicks || dnGap >= MinimumTicks)
+				{
+					// Create FVG entry
+					FVGEntry fvgEntry = new FVGEntry(CurrentBar - 1, upGap >= MinimumTicks, upGap >= MinimumTicks ? High[2] : Low[2], upGap >= MinimumTicks ? Low[0] : High[0]);
+
+					// Add to FVG list if not already present
+					if (!fvgList.Any(f => f.BarIndex == fvgEntry.BarIndex))
+					{
+						fvgList.Add(fvgEntry);
+						Print($"FVG detected at bar {CurrentBar - 1}: {(fvgEntry.IsUp ? "UP" : "DOWN")} gap from {fvgEntry.StartPrice} to {fvgEntry.EndPrice}");
+
+						// Draw FVG on chart
+						string fvgName = $"FVG_{fvgEntry.BarIndex}";
+
+						// Calculate FVG dimensions
+						double fvgStartPrice = fvgEntry.StartPrice;
+						double fvgEndPrice = fvgEntry.EndPrice;
+
+						// Draw rectangle for FVG
+						Draw.Rectangle(this, fvgName,
+							1, fvgStartPrice,
+							0, fvgEndPrice,
+							fvgEntry.IsUp ? Brushes.LimeGreen : Brushes.Red);
+
+						Draw.Rectangle(this, fvgName, false, 1, fvgStartPrice, 0, fvgEndPrice, fvgEntry.IsUp ? Brushes.LimeGreen : Brushes.Red, fvgEntry.IsUp ? Brushes.LimeGreen : Brushes.Red, 40);
+
+					}
+
+					// Remove old FVGs if exceeding maximum count
+					while (fvgList.Count > MaxFvg)
+					{
+						// Remove the FVG drawing when we remove it from the list
+						FVGEntry removedFvg = fvgList[0];
+						RemoveDrawObject($"FVG_{removedFvg.BarIndex}");
+						fvgList.RemoveAt(0);
+					}
+				}
+			}
+
 			if (Position.MarketPosition == MarketPosition.Flat)
 			{
 				trimOrderFilled = false;
 				trimOrderShortFilled = false;
+			}
+
+			// Swing High/Low Detection
+			if (EnableSwingDetection && CurrentBar >= 1)
+			{
+				DetectSwingPoints();
+				ValidateSwingPoints();
+				InvalidateSwingPoints();
+				ManageSwingPoints();
+				
+				// Update horizontal lines to extend to current bar
+				UpdateAndDrawSwingLines();
 			}
 			#endregion
 			#region PnL Calculation
@@ -529,30 +653,73 @@ TODO: [1] Add SL/TP order tracking
 			SellTradeEnabled = false;
 			if (EnableTrading)
 			{
+				// Check for FVG invalidation and generate trading signals
+				if (fvgList.Count > 0)
+				{
+					// Start from the newest FVG (last in the list) and work backwards
+					for (int i = fvgList.Count - 1; i >= 0; i--)
+					{
+						FVGEntry fvg = fvgList[i];
+						if (fvg.BarIndex >= CurrentBar - 1 || fvg.BarIndex <= CurrentBar - 15)
+						{
+							continue;
+						}
+						// Check if FVG is invalidated by current price
+						if (fvg.IsUp) // Upward FVG
+						{
+							// Upward FVG is invalidated when price moves down below the start price
+							if (Open[0] > fvg.StartPrice && Close[0] < fvg.EndPrice)
+							{
+								// Invalidate this FVG
+								RemoveDrawObject($"FVG_{fvg.BarIndex}");
+								fvgList.RemoveAt(i);
 
-				BuyTradeEnabled = true;
-				SellTradeEnabled = true;
+								// Trigger sell signal
+								SellTradeEnabled = true;
+								Draw.SquareFixed(this, "Sell_iFVG" + CurrentBar, false, 0, Close[0], Brushes.Red);
+								Print($"FVG invalidated at bar {fvg.BarIndex}: UP FVG invalidated by price {Close[0]} below {fvg.StartPrice}");
+								break; // Exit after first invalidation
+							}
+						}
+						else // Downward FVG
+						{
+							// Downward FVG is invalidated when price moves up above the start price
+							if (Open[0] < fvg.StartPrice && Close[0] > fvg.EndPrice)
+							{
+								// Invalidate this FVG
+								RemoveDrawObject($"FVG_{fvg.BarIndex}");
+								fvgList.RemoveAt(i);
+
+								// Trigger buy signal
+								BuyTradeEnabled = true;
+								Draw.SquareFixed(this, "Buy_iFVG" + CurrentBar, false, 0, Close[0], Brushes.LimeGreen);
+								Print($"FVG invalidated at bar {fvg.BarIndex}: DOWN FVG invalidated by price {Close[0]} above {fvg.StartPrice}");
+								break; // Exit after first invalidation
+							}
+						}
+					}
+				}
 			}
 			#endregion
 			#region Trading Management
 			#region TP/SL Management
 			if (Position.MarketPosition == MarketPosition.Flat)
 			{
-				SetStopLoss("Long", CalculationMode.Ticks, GetConvertedValue(FullStopLoss) / TickSize, false);
-				SetStopLoss("LongTrim", CalculationMode.Ticks, GetConvertedValue(TrimTakeProfit) / TickSize, false);
-				SetStopLoss("LongSecondaryTrim", CalculationMode.Ticks, GetConvertedValue(SecondaryTrimTakeProfit) / TickSize, false);
+				SetStopLoss("Long", CalculationMode.Ticks, FullStopLoss / TickSize, false);
+				SetStopLoss("LongTrim", CalculationMode.Ticks, FullStopLoss / TickSize, false);
+				SetStopLoss("LongSecondaryTrim", CalculationMode.Ticks, FullStopLoss / TickSize, false);
 
-				SetStopLoss("Short", CalculationMode.Ticks, GetConvertedValue(FullStopLoss) / TickSize, false);
-				SetStopLoss("ShortTrim", CalculationMode.Ticks, GetConvertedValue(TrimTakeProfit) / TickSize, false);
-				SetStopLoss("ShortSecondaryTrim", CalculationMode.Ticks, GetConvertedValue(SecondaryTrimTakeProfit) / TickSize, false);
+				SetStopLoss("Short", CalculationMode.Ticks, FullStopLoss / TickSize, false);
+				SetStopLoss("ShortTrim", CalculationMode.Ticks, FullStopLoss / TickSize, false);
+				SetStopLoss("ShortSecondaryTrim", CalculationMode.Ticks, FullStopLoss / TickSize, false);
 
-				SetProfitTarget("Long", CalculationMode.Ticks, GetConvertedValue(FullTakeProfit) / TickSize, false);
-				SetProfitTarget("LongTrim", CalculationMode.Ticks, GetConvertedValue(TrimTakeProfit) / TickSize, false);
-				SetProfitTarget("LongSecondaryTrim", CalculationMode.Ticks, GetConvertedValue(SecondaryTrimTakeProfit) / TickSize, false);
+				SetProfitTarget("Long", CalculationMode.Ticks, FullTakeProfit / TickSize, false);
+				SetProfitTarget("LongTrim", CalculationMode.Ticks, FullTakeProfit * DynamicTrimR / TickSize, false);
+				SetProfitTarget("LongSecondaryTrim", CalculationMode.Ticks, FullTakeProfit * SecondaryTrimR / TickSize, false);
 
-				SetProfitTarget("Short", CalculationMode.Ticks, GetConvertedValue(FullTakeProfit) / TickSize, false);
-				SetProfitTarget("ShortTrim", CalculationMode.Ticks, GetConvertedValue(TrimTakeProfit) / TickSize, false);
-				SetProfitTarget("ShortSecondaryTrim", CalculationMode.Ticks, GetConvertedValue(SecondaryTrimTakeProfit) / TickSize, false);
+				SetProfitTarget("Short", CalculationMode.Ticks, FullTakeProfit / TickSize, false);
+				SetProfitTarget("ShortTrim", CalculationMode.Ticks, FullTakeProfit * DynamicTrimR / TickSize, false);
+				SetProfitTarget("ShortSecondaryTrim", CalculationMode.Ticks, FullTakeProfit * SecondaryTrimR / TickSize, false);
 			}
 			else if (Position.MarketPosition == MarketPosition.Long)
 			{
@@ -614,27 +781,24 @@ TODO: [1] Add SL/TP order tracking
 
 			#region Buy/Sell Orders
 			int mainTradeQuantity = TradeQuantity;
-			int trimTradeQuantity = (int)Math.Round(TradeQuantity * TrimPercent / 100, 0);
+			int trimTradeQuantity = (int)Math.Round(TradeQuantity * DynamicTrimPercent / 100, 0);
 			int secondaryTrimTradeQuantity = (int)Math.Round(TradeQuantity * SecondaryTrimPercent / 100, 0);
 
-			if (TradeQuantity < 4)
-				EnableSecondaryTrim = false;
-
-			if (EnableDynamicTrim)
+			if (EnableDynamicTrim && TradeQuantity > 1)
 				mainTradeQuantity = TradeQuantity - trimTradeQuantity;
 
-			if (EnableSecondaryTrim && TradeQuantity > 3)
+			if (EnableDynamicTrim && TradeQuantity > 3)
 				mainTradeQuantity = TradeQuantity - trimTradeQuantity - secondaryTrimTradeQuantity;
 
 			if (Position.MarketPosition == MarketPosition.Flat)
 			{
 				if (BuyTradeEnabled)
 				{
-
+					EnterLongLimit(mainTradeQuantity, Close[0], "Long");
 				}
 				else if (SellTradeEnabled)
 				{
-
+					EnterShortLimit(mainTradeQuantity, Close[0], "Short");
 				}
 			}
 			#endregion
@@ -878,6 +1042,7 @@ TODO: [1] Add SL/TP order tracking
 			else
 			{
 				EnableTrading = false;
+				lastTimeSession = 0;
 			}
 			#endregion
 		}
@@ -905,29 +1070,308 @@ TODO: [1] Add SL/TP order tracking
 			double tickSize = Instrument.MasterInstrument.TickSize;
 			return Math.Round(price / tickSize) * tickSize;
 		}
+		#endregion
 
-		private double GetConvertedValue(double value)
+		#region Swing Detection Functions
+		private void DetectSwingPoints()
 		{
-			if (Instrument.MasterInstrument.Name == "MES" || Instrument.MasterInstrument.Name == "ES")
-				return RoundToNearestTick(value * ConversionFactorES);
-			else
-				return value;
+			// We need at least 3 bars to identify a swing point (bar 0, 1, 2)
+			if (CurrentBar < 2) return;
+
+			// Check for potential swing high at bar 1 (bar 1 has higher high than bars 0 and 2)
+			bool isPotentialSwingHigh = High[1] > High[0] && High[1] > High[2];
+
+			// Check for potential swing low at bar 1 (bar 1 has lower low than bars 0 and 2)
+			bool isPotentialSwingLow = Low[1] < Low[0] && Low[1] < Low[2];
+
+			// Check minimum strength requirement
+			double swingHighStrength = 0;
+			double swingLowStrength = 0;
+
+			if (isPotentialSwingHigh)
+			{
+				// Calculate the minimum difference from surrounding bars
+				double diffFromBar0 = High[1] - High[0];
+				double diffFromBar2 = High[1] - High[2];
+				swingHighStrength = Math.Min(diffFromBar0, diffFromBar2) / TickSize;
+			}
+
+			if (isPotentialSwingLow)
+			{
+				// Calculate the minimum difference from surrounding bars
+				double diffFromBar0 = Low[0] - Low[1];
+				double diffFromBar2 = Low[2] - Low[1];
+				swingLowStrength = Math.Min(diffFromBar0, diffFromBar2) / TickSize;
+			}
+
+			// Create swing points if they meet strength requirements
+			if (isPotentialSwingHigh && swingHighStrength >= MinimumSwingStrength)
+			{
+				SwingPoint swingHigh = new SwingPoint(CurrentBar - 1, true, High[1], Low[1]);
+				swingHighs.Add(swingHigh);
+				
+				if (!DisableGraphics)
+				{
+					Draw.Dot(this, $"SwingHigh_{CurrentBar - 1}", false, 1, High[1], Brushes.Red);
+				}
+				
+				Print($"Potential Swing High detected at bar {CurrentBar - 1}, price: {High[1]}, strength: {swingHighStrength:F1} ticks");
+			}
+
+			if (isPotentialSwingLow && swingLowStrength >= MinimumSwingStrength)
+			{
+				SwingPoint swingLow = new SwingPoint(CurrentBar - 1, false, Low[1], High[1]);
+				swingLows.Add(swingLow);
+				
+				if (!DisableGraphics)
+				{
+					Draw.Dot(this, $"SwingLow_{CurrentBar - 1}", false, 1, Low[1], Brushes.Blue);
+				}
+				
+				Print($"Potential Swing Low detected at bar {CurrentBar - 1}, price: {Low[1]}, strength: {swingLowStrength:F1} ticks");
+			}
+		}
+
+		private void ValidateSwingPoints()
+		{
+			// Validate swing highs based on price action confirmation
+			for (int i = swingHighs.Count - 1; i >= 0; i--)
+			{
+				SwingPoint swing = swingHighs[i];
+				
+				if (!swing.IsValidated)
+				{
+					// Swing high is validated when price closes below its validation price
+					if (Close[0] < swing.ValidationPrice)
+					{
+						swing.IsValidated = true;
+						Print($"Swing High validated at bar {swing.BarIndex}, price: {swing.Price}, validation price: {swing.ValidationPrice}");
+						
+						if (!DisableGraphics)
+						{
+							// Change color to indicate validation
+							RemoveDrawObject($"SwingHigh_{swing.BarIndex}");
+							Draw.Dot(this, $"SwingHigh_{swing.BarIndex}", false, CurrentBar - swing.BarIndex, swing.Price, Brushes.Pink);
+						}
+					}
+				}
+			}
+
+			// Validate swing lows based on price action confirmation
+			for (int i = swingLows.Count - 1; i >= 0; i--)
+			{
+				SwingPoint swing = swingLows[i];
+				
+				if (!swing.IsValidated)
+				{
+					// Swing low is validated when price closes above its validation price
+					if (Close[0] > swing.ValidationPrice)
+					{
+						swing.IsValidated = true;
+						Print($"Swing Low validated at bar {swing.BarIndex}, price: {swing.Price}, validation price: {swing.ValidationPrice}");
+						
+						if (!DisableGraphics)
+						{
+							// Change color to indicate validation
+							RemoveDrawObject($"SwingLow_{swing.BarIndex}");
+							Draw.Dot(this, $"SwingLow_{swing.BarIndex}", false, CurrentBar - swing.BarIndex, swing.Price, Brushes.SkyBlue);
+						}
+					}
+				}
+			}
+		}
+
+		private void InvalidateSwingPoints()
+		{
+			// Check for swing high invalidation (price breaks above the swing high)
+			for (int i = swingHighs.Count - 1; i >= 0; i--)
+			{
+				SwingPoint swing = swingHighs[i];
+				
+				if (swing.IsValidated)
+				{
+					// Swing high is invalidated when price closes above it
+					if (Close[0] > swing.Price)
+					{
+						Print($"Swing High invalidated at bar {swing.BarIndex}, price: {swing.Price} - Price closed above at {Close[0]}");
+						
+						// Remove graphics
+						if (!DisableGraphics)
+						{
+							RemoveDrawObject($"SwingHigh_{swing.BarIndex}");
+							RemoveDrawObject($"SwingHighLine_{swing.BarIndex}");
+							
+							// Clear current swing high line if this was the active one
+							if (currentSwingHighLine != null && currentSwingHighLine.BarIndex == swing.BarIndex)
+							{
+								currentSwingHighLine = null;
+							}
+						}
+						
+						// Remove from list
+						swingHighs.RemoveAt(i);
+					}
+				}
+			}
+
+			// Check for swing low invalidation (price breaks below the swing low)
+			for (int i = swingLows.Count - 1; i >= 0; i--)
+			{
+				SwingPoint swing = swingLows[i];
+				
+				if (swing.IsValidated)
+				{
+					// Swing low is invalidated when price closes below it
+					if (Close[0] < swing.Price)
+					{
+						Print($"Swing Low invalidated at bar {swing.BarIndex}, price: {swing.Price} - Price closed below at {Close[0]}");
+						
+						// Remove graphics
+						if (!DisableGraphics)
+						{
+							RemoveDrawObject($"SwingLow_{swing.BarIndex}");
+							RemoveDrawObject($"SwingLowLine_{swing.BarIndex}");
+							
+							// Clear current swing low line if this was the active one
+							if (currentSwingLowLine != null && currentSwingLowLine.BarIndex == swing.BarIndex)
+							{
+								currentSwingLowLine = null;
+							}
+						}
+						
+						// Remove from list
+						swingLows.RemoveAt(i);
+					}
+				}
+			}
+		}
+
+		private void ManageSwingPoints()
+		{
+			// Remove old swing highs to maintain performance
+			while (swingHighs.Count > MaxSwingCount / 2)
+			{
+				SwingPoint removedSwing = swingHighs[0];
+				
+				// Remove graphics
+				if (!DisableGraphics)
+				{
+					RemoveDrawObject($"SwingHigh_{removedSwing.BarIndex}");
+					RemoveDrawObject($"SwingHighLabel_{removedSwing.BarIndex}");
+					RemoveDrawObject($"SwingHighLine_{removedSwing.BarIndex}");
+					
+					// Clear current swing high line if this was the active one
+					if (currentSwingHighLine != null && currentSwingHighLine.BarIndex == removedSwing.BarIndex)
+					{
+						currentSwingHighLine = null;
+					}
+				}
+				
+				swingHighs.RemoveAt(0);
+			}
+
+			// Remove old swing lows to maintain performance
+			while (swingLows.Count > MaxSwingCount / 2)
+			{
+				SwingPoint removedSwing = swingLows[0];
+				
+				// Remove graphics
+				if (!DisableGraphics)
+				{
+					RemoveDrawObject($"SwingLow_{removedSwing.BarIndex}");
+					RemoveDrawObject($"SwingLowLabel_{removedSwing.BarIndex}");
+					RemoveDrawObject($"SwingLowLine_{removedSwing.BarIndex}");
+					
+					// Clear current swing low line if this was the active one
+					if (currentSwingLowLine != null && currentSwingLowLine.BarIndex == removedSwing.BarIndex)
+					{
+						currentSwingLowLine = null;
+					}
+				}
+				
+				swingLows.RemoveAt(0);
+			}
+		}
+		private void DrawHorizontalLine(SwingPoint swing, bool isHigh)
+		{
+			if (DisableGraphics) return;
+
+			string lineName = isHigh ? $"SwingHighLine_{swing.BarIndex}" : $"SwingLowLine_{swing.BarIndex}";
+			Brush lineColor = isHigh ? Brushes.Pink : Brushes.SkyBlue;
+			
+			// Remove previous line to update its end point
+			RemoveDrawObject(lineName);
+			// Draw horizontal line from swing point to current bar
+			Draw.Line(this, lineName, false, CurrentBar - swing.BarIndex, swing.Price, 0, swing.Price, lineColor, DashStyleHelper.Solid, 2);
+		}
+
+		private void UpdateAndDrawSwingLines()
+		{
+			if (DisableGraphics) return;
+
+			// --- Highs ---
+			SwingPoint latestValidatedHigh = swingHighs.Where(s => s.IsValidated).OrderByDescending(s => s.BarIndex).FirstOrDefault();
+		
+			// Set the latest validated high as the one to be tracked
+			currentSwingHighLine = latestValidatedHigh;
+
+			// If there is a line to track, draw/extend it
+			if (currentSwingHighLine != null)
+			{
+				DrawHorizontalLine(currentSwingHighLine, true);
+			}
+
+			// --- Lows ---
+			SwingPoint latestValidatedLow = swingLows.Where(s => s.IsValidated).OrderByDescending(s => s.BarIndex).FirstOrDefault();
+
+			// Set the latest validated low as the one to be tracked
+			currentSwingLowLine = latestValidatedLow;
+			
+			// If there is a line to track, draw/extend it
+			if (currentSwingLowLine != null)
+			{
+				DrawHorizontalLine(currentSwingLowLine, false);
+			}
 		}
 		#endregion
 		#endregion
-	}
 
-	public class TradeExecutionDetailsStrategy
-	{
-		public double TradeExecPrice { get; set; }
-		public string TradeExecuteType { get; set; }
-		public string TradeExecName { get; set; }
-
-		public TradeExecutionDetailsStrategy(double tradeExecPrice, string tradeExecuteType, string tradeExecName)
+		#region FVGEntry Class
+		public class FVGEntry
 		{
-			TradeExecPrice = tradeExecPrice;
-			TradeExecuteType = tradeExecuteType;
-			TradeExecName = tradeExecName;
+			public int BarIndex { get; set; }
+			public bool IsUp { get; set; }
+			public double StartPrice { get; set; }
+			public double EndPrice { get; set; }
+
+			public FVGEntry(int barIndex, bool isUp, double startPrice, double endPrice)
+			{
+				BarIndex = barIndex;
+				IsUp = isUp;
+				StartPrice = startPrice;
+				EndPrice = endPrice;
+			}
 		}
+		#endregion
+
+		#region SwingPoint Class
+		public class SwingPoint
+		{
+			public int BarIndex { get; set; }
+			public bool IsHigh { get; set; }
+			public double Price { get; set; }
+			public bool IsValidated { get; set; }
+			public double ValidationPrice { get; set; }
+
+			public SwingPoint(int barIndex, bool isHigh, double price, double validationPrice)
+			{
+				BarIndex = barIndex;
+				IsHigh = isHigh;
+				Price = price;
+				IsValidated = false;
+				ValidationPrice = validationPrice;
+			}
+		}
+		#endregion
 	}
 }

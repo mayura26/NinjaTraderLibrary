@@ -24,16 +24,25 @@ using NinjaTrader.NinjaScript.DrawingTools;
 
 #region TODO
 /*
-TODO: [4] Create logic to get time to bar closed from the newstimes to place order
-TODO: [5] Create prop for time to bar closed
 */
 #endregion
 //This namespace holds Strategies in this folder and is required. Do not change it. 
 namespace NinjaTrader.NinjaScript.Strategies
 {
+	public enum NewsOrbMode
+	{
+		Bracket,
+		Long,
+		Short
+	}
+
 	public class NewsORB : Strategy
 	{
 		#region Properties
+		[NinjaScriptProperty]
+		[Display(Name = "Mode", Description = "Trading mode: Bracket (both sides), Long (long only), or Short (short only)", Order = 8, GroupName = "1. Main Parameters")]
+		public NewsOrbMode Mode { get; set; } = NewsOrbMode.Bracket;
+
 		[NinjaScriptProperty]
 		[PropertyEditor("NinjaTrader.Gui.Tools.TimeEditorKey")]
 		[Display(Name = "Trigger Time", Description = "Time to trigger the trade", Order = 9, GroupName = "1. Main Parameters")]
@@ -48,12 +57,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 		public int TimeToBarClosed { get; set; } = 15;
 
 		[NinjaScriptProperty]
-		[Display(Name = "News Bracket Size", Description = "Size of the news bracket", Order = 10, GroupName = "1. Main Parameters")]
+		[Display(Name = "News Bracket Size", Description = "Size of the news bracket", Order = 12, GroupName = "1. Main Parameters")]
 		public double NewsBracketSize { get; set; } = 27.5;
 
 		[NinjaScriptProperty]
-		[Display(Name = "Profit Target", Description = "Profit target", Order = 11, GroupName = "1. Main Parameters")]
+		[Display(Name = "Profit Target", Description = "Profit target", Order = 13, GroupName = "1. Main Parameters")]
 		public double ProfitTarget { get; set; } = 20;
+
+		[NinjaScriptProperty]
+		[Display(Name = "Disable Graphics", Description = "Disables drawing of chart graphics", Order = 14, GroupName = "1. Main Parameters")]
+		public bool DisableGraphics { get; set; } = false;
 		#endregion
 
 		#region Variables
@@ -84,6 +97,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// See the Help Guide for additional information
 				IsInstantiatedOnEachOptimizationIteration = true;
 
+				Mode = NewsOrbMode.Bracket;
 				TriggerTime = DateTime.Parse("08:30", System.Globalization.CultureInfo.InvariantCulture);
 			}
 			else if (State == State.Historical)
@@ -94,6 +108,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 						timer.Tick += OnTimerTick;
 					});
 			}
+			else if (State == State.DataLoaded)
+			{
+				ClearOutputWindow();
+				if (BarsPeriod.BarsPeriodType != BarsPeriodType.Minute || BarsPeriod.Value != 1)
+				{
+					string expectedTimeframe = BarsPeriodType.Minute.ToString() + " " + 1.ToString();
+					Draw.TextFixed(this, "TimeframeWarning", $"WARNING: This strategy is designed for {expectedTimeframe} charts only!", TextPosition.Center);
+					Print($"WARNING: {Name} strategy is designed to run on {expectedTimeframe} timeframe only. Current timeframe: "
+						+ BarsPeriod.BarsPeriodType.ToString() + " " + BarsPeriod.Value.ToString());
+				}
+			}
 			else if (State == State.Realtime)
 			{
 				ordersPlaced = false;
@@ -102,6 +127,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				takeprofitPlaced = false;
 				RemoveDrawObject("ORBUpper");
 				RemoveDrawObject("ORBLower");
+				longStopEntry = null;
+				shortStopEntry = null;
 			}
 		}
 
@@ -111,22 +138,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (State != State.Realtime && State != State.Historical)
 				return;
 
-			// Check if it's 9:29 AM EST to set trigger price
+			// Check if it's time to set trigger price
 			if (!triggerSet && !ordersPlaced && Time[0].TimeOfDay == TriggerTime.TimeOfDay)
 			{
 				triggerSet = true;
 			}
 
-			if (triggerSet && !ordersPlaced && !timerElapsed)
-			{
-				triggerPrice = Close[0];
-				if (barTimeLeft != null && barTimeLeft.TotalSeconds <= TimeToBarClosed && barTimeLeft.TotalSeconds > 0)
-				{
-					Print(Time[0] + " [News ORB] Timer Elapsed");
-					Print(Time[0] + " [News ORB] Trigger Price Set: " + triggerPrice);
-					timerElapsed = true;
-				}
-			}
+			
 
 			if (triggerSet && !ordersPlaced && timerElapsed)
 			{
@@ -134,12 +152,43 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// oco means that when one entry fills, the other entry is automatically cancelled
 				// in OnExecution we will protect these orders with our version of a stop loss and profit target when one of the entry orders fills
 				ocoString = string.Format("unmanagedentryoco{0}", DateTime.Now.ToString("hhmmssffff"));
-				longStopEntry = SubmitOrderUnmanaged(0, OrderAction.Buy, OrderType.StopMarket, Quantity, 0, triggerPrice + NewsBracketSize, ocoString, "longStopEntry");
-				shortStopEntry = SubmitOrderUnmanaged(0, OrderAction.SellShort, OrderType.StopMarket, Quantity, 0, triggerPrice - NewsBracketSize, ocoString, "shortStopEntry");
+				triggerPrice = Close[0];
+				if (Mode == NewsOrbMode.Bracket)
+				{
+					// Original bracket mode - place both long and short stop orders
+					longStopEntry = SubmitOrderUnmanaged(0, OrderAction.Buy, OrderType.StopMarket, Quantity, 0, triggerPrice + NewsBracketSize, ocoString, "longStopEntry");
+					shortStopEntry = SubmitOrderUnmanaged(0, OrderAction.SellShort, OrderType.StopMarket, Quantity, 0, triggerPrice - NewsBracketSize, ocoString, "shortStopEntry");
+					Draw.HorizontalLine(this, "ORBUpper", triggerPrice + NewsBracketSize, Brushes.Lime);
+					Draw.HorizontalLine(this, "ORBLower", triggerPrice - NewsBracketSize, Brushes.Red);
+				}
+				else if (Mode == NewsOrbMode.Long)
+				{
+					// Long mode - place only long stop order
+					SubmitOrderUnmanaged(0, OrderAction.Buy, OrderType.Market, Quantity, 0, triggerPrice, ocoString, "longEntry");
+					Draw.HorizontalLine(this, "ORBUpper", triggerPrice + NewsBracketSize, Brushes.Lime);
+				}
+				else if (Mode == NewsOrbMode.Short)
+				{
+					// Short mode - place only short stop order
+					SubmitOrderUnmanaged(0, OrderAction.SellShort, OrderType.Market, Quantity, 0, triggerPrice, ocoString, "shortEntry");
+					Draw.HorizontalLine(this, "ORBLower", triggerPrice - NewsBracketSize, Brushes.Red);
+				}
+				
 				ordersPlaced = true;
-				Draw.HorizontalLine(this, "ORBUpper", triggerPrice + NewsBracketSize, Brushes.Lime);
-				Draw.HorizontalLine(this, "ORBLower", triggerPrice - NewsBracketSize, Brushes.Red);
 			}
+
+			#region Dashboard
+			string dashBoard =
+				$"Mode: {Mode} | "
+				+ $"Trigger: {(triggerSet ? "Set" : "Pending")} | "
+				+ $"Orders: {(ordersPlaced ? "Placed" : "Not Placed")} | "
+				+ $"TP: {(takeprofitPlaced ? "Set" : "Not Set")}";
+
+			if (!DisableGraphics)
+			{
+				Draw.TextFixed(this, "Dashboard", dashBoard, TextPosition.BottomRight);
+			}
+			#endregion
 		}
 
 		private void OnTimerTick(object sender, EventArgs e)
@@ -149,6 +198,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 				if (timer != null && !timer.IsEnabled)
 					timer.IsEnabled = true;
 				barTimeLeft = Bars.GetTime(Bars.Count - 1).Subtract(Now);
+
+				// ADD THE TRIGGER LOGIC HERE
+				if (triggerSet && !ordersPlaced && !timerElapsed)
+				{
+					if (barTimeLeft.TotalSeconds <= TimeToBarClosed && barTimeLeft.TotalSeconds > 0)
+					{
+						Print(Time[0] + " [News ORB] Timer Elapsed");
+						Print(Time[0] + " [News ORB] Mode: " + Mode);
+						Print(Time[0] + " [News ORB] Trigger Price Set: " + triggerPrice);
+						timerElapsed = true;
+					}
+				}
 
 				if (triggerSet && !ordersPlaced)
 				{
@@ -189,16 +250,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 				SubmitOrderUnmanaged(0, OrderAction.BuyToCover, OrderType.Limit, Quantity, triggerPrice - NewsBracketSize - ProfitTarget, 0, ocoString, "shortProfitTarget");
 				takeprofitPlaced = true;
 			}
-
-			// I didn't use Order variables to track the stop loss and profit target, but I could have
-			// Instead, I detect the orders when the fill by their signalName
-			// (the execution.Name is the signalName provided with the order)
-
-			// when the long profit or stop fills, set the long entry to null to allow a new entry
-			else if (execution.Name == "longProfitTarget" || execution.Name == "longStopLoss" || execution.Name == "shortProfitTarget" || execution.Name == "shortStopLoss")
+			else if (execution.Order.Name == "longEntry" && execution.Order.OrderState == OrderState.Filled && !takeprofitPlaced)
 			{
-				longStopEntry = null;
-				shortStopEntry = null;
+				ocoString = string.Format("unmanageexitdoco{0}", DateTime.Now.ToString("hhmmssffff"));
+				SubmitOrderUnmanaged(0, OrderAction.Sell, OrderType.Limit, Quantity, execution.Order.AverageFillPrice + ProfitTarget, 0, ocoString, "longProfitTarget");
+				takeprofitPlaced = true;
+			}
+			else if (execution.Order.Name == "shortEntry" && execution.Order.OrderState == OrderState.Filled && !takeprofitPlaced)
+			{
+				ocoString = string.Format("unmanageexitdoco{0}", DateTime.Now.ToString("hhmmssffff"));
+				SubmitOrderUnmanaged(0, OrderAction.BuyToCover, OrderType.Limit, Quantity, execution.Order.AverageFillPrice - ProfitTarget, 0, ocoString, "shortProfitTarget");
+				takeprofitPlaced = true;
 			}
 		}
 	}
